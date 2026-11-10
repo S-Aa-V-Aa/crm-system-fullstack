@@ -1,0 +1,20 @@
+# Віртуальне середовище
+venv/
+ENV/
+env/
+
+# База даних SQLite та логи
+*.sqlite3
+*.log
+
+# Кеш Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Налаштування редакторів
+.vscode/
+.idea/
+
+# Змінні середовища
+.env
