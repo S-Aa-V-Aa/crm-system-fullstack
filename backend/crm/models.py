@@ -29,3 +29,29 @@ class Client(models.Model):
 
     def __str__(self):
         return f"{self.first_name} {self.last_name} ({self.email})"
+
+class Deal(models.Model):
+    # Етапи воронки продажів (Pipeline stages)
+    STAGE_CHOICES = [
+        ('new', 'Нова заявка'),
+        ('proposal','Комерційна пропозиція'),
+        ('negotiation', 'Переговори'),
+        ('won', 'Успішно закрито'),
+        ('lost', 'Програно'),
+    ]
+
+    title = models.CharField(max_length=200)
+    amount = models.DecimalField(max_digits=12, decimal_places=2, default=0.00)
+    stage = models.CharField(max_length=20, choices=STAGE_CHOICES, default='new')
+
+    client = models.ForeignKey(
+        Client,
+        on_delete=models.CASCADE, related_name='deals'
+    )
+
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"{self.title} - {self.amount} гргн ({self.get_stage_display()})"
+        
