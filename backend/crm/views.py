@@ -19,6 +19,10 @@ class ClientViewSet(viewsets.ModelViewSet):
     # Поля, за якими клієнт може сортувати дані
     ordering_fields = ['created_at', 'last_name']
 
+    def perform_create(self, serializer):
+        # Автоматично зберігаємо поточного залогіненого юзера як відповідального менеджера
+        serializer.save(responsible_manager=self.request.user)
+
 class DealViewSet(viewsets.ModelViewSet):
     #Оптимізація SQL-запитів через select_related
     queryset = Deal.objects.all().select_related('client').order_by('-created_at')
@@ -35,4 +39,4 @@ class DealViewSet(viewsets.ModelViewSet):
 
     # Сортування: за сумою або датою створення
     ordering_fields = ['amount', 'created_at']
-    
+
