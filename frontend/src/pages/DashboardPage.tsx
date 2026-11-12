@@ -258,9 +258,10 @@ export const DashboardPage = ({ onLogout }: DashboardPageProps) => {
       )}
 
       {/* Модальне вікно управління командою (тільки для адміністратора) */}
-      {isAdmin && (
+      {isAdmin && currentUser && (
         <TeamModal
           isOpen={isTeamModalOpen}
+          currentUser={currentUser}
           onClose={() => setIsTeamModalOpen(false)}
         />
       )}

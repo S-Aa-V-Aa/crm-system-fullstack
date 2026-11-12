@@ -52,3 +52,16 @@ export const createUser = async (userData: CreateUserPayload): Promise<User> => 
   const response = await apiClient.post<User>('/users/', userData);
   return response.data;
 };
+
+// Зміна ролі працівника (менеджер <-> адміністратор)
+export const updateUserRole = async (userId: number, isStaff: boolean): Promise<User> => {
+  const response = await apiClient.patch<User>(`/users/${userId}/`, {
+    is_staff: isStaff,
+  });
+  return response.data;
+};
+
+// Деактивація (звільнення) працівника
+export const deactivateUser = async (userId: number): Promise<void> => {
+  await apiClient.delete(`/users/${userId}/`);
+};

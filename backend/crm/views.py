@@ -3,7 +3,7 @@ from rest_framework import viewsets, filters, generics
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated, IsAdminUser
-from rest_framework.exceptions import PermissionDenied
+from rest_framework.exceptions import PermissionDenied, ValidationError
 from django_filters.rest_framework import DjangoFilterBackend
 from .models import Client, Deal
 from .serializers import (
@@ -11,6 +11,7 @@ from .serializers import (
     DealSerializer,
     UserProfileSerializer,
     CreateUserSerializer,
+    UserUpdateSerializer,
 )
 from .permissions import IsAdminOrResponsibleManager
 
@@ -31,6 +32,26 @@ class UserManagementView(generics.ListCreateAPIView):
         if self.request.method == 'POST':
             return CreateUserSerializer
         return UserProfileSerializer
+
+class UserDetailView(generics.RetrieveUpdateDestroyAPIView):
+    permission_classes = [IsAdminUser]
+    queryset = User.objects.filter(is_active=True)
+    serializer_class = UserUpdateSerializer
+
+    def perform_update(self, serializer):
+        # Захист від випадкового зняття прав адміністратора із самого себе
+        if serializer.instance.id == self.request.user.id:
+            raise ValidationError({'detail': 'Ви не можете змінювати роль власного облікового запису.'})
+        serializer.save()
+
+    def perform_destroy(self, instance):
+        # Захист від блокування самого себе
+        if instance.id == self.request.user.id:
+            raise ValidationError({'detail': 'Ви не можете деактивувати власний обліковий запис.'})
+        # Soft Delete: деактивуємо вхід, але зберігаємо всю історію угод працівника
+        instance.is_active = False
+        instance.save()
+    
 class ClientViewSet(viewsets.ModelViewSet):
     serializer_class = ClientSerializer
     permission_classes =[IsAdminOrResponsibleManager]

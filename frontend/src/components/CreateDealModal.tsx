@@ -212,10 +212,12 @@ export const CreateDealModal = ({
             type="button"
             onClick={onClose}
             disabled={isSubmitting}
-            className="text-slate-400 hover:text-slate-700 text-sm font-medium px-1.5 py-0.5 rounded transition-colors"
-            aria-label="Закрити"
+            className="text-slate-400 hover:text-slate-700 p-1 rounded-md hover:bg-slate-100 transition-colors"
+            aria-label="Закрити вікно"
           >
-            Esc
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12" />
+            </svg>
           </button>
         </div>
 

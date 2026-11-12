@@ -23,6 +23,13 @@ class CreateUserSerializer(serializers.ModelSerializer):
             last_name=validated_data.get('last_name', ''),
             is_staff=validated_data.get('is_staff', False),
         )
+
+class UserUpdateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ['id', 'username', 'first_name', 'last_name', 'is_staff', 'is_superuser', 'is_active']
+        read_only_fields = ['id', 'username', 'first_name', 'last_name', 'is_superuser']
+
 class ClientSerializer(serializers.ModelSerializer):
     # Додаткове поле, яке віддає логін менеджера у вигляді простого рядка
     manager_name = serializers.ReadOnlyField(source='responsible_manager.username')
