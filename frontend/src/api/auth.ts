@@ -1,5 +1,5 @@
 import apiClient from './client';
-import type { AuthResponse } from '../types';
+import type { AuthResponse, User, CreateUserPayload } from '../types';
 
 // Облікові дані, які передаються з форми входу
 export interface LoginCredentials {
@@ -33,4 +33,22 @@ export const isAuthenticated = (): boolean => {
 // Функція отримання імені поточного користувача
 export const getCurrentUsername = (): string => {
   return localStorage.getItem('username') || 'Користувач';
+};
+
+// Отримання реального профілю поточного користувача (id, username, is_staff)
+export const getCurrentUser = async (): Promise<User> => {
+  const response = await apiClient.get<User>('/me/');
+  return response.data;
+};
+
+// Отримання списку всіх активних працівників (доступно лише адміністратору)
+export const getUsers = async (): Promise<User[]> => {
+  const response = await apiClient.get<User[]>('/users/');
+  return response.data;
+};
+
+// Реєстрація нового працівника адміністратором
+export const createUser = async (userData: CreateUserPayload): Promise<User> => {
+  const response = await apiClient.post<User>('/users/', userData);
+  return response.data;
 };

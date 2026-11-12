@@ -2,12 +2,23 @@
 export interface User {
   id: number;
   username: string;
-  email: string;
+  first_name: string;
+  last_name: string;
+  is_staff: boolean;
+  is_superuser: boolean;
+}
+
+// Дані для реєстрації нового працівника адміністратором (CreateUserSerializer)
+export interface CreateUserPayload {
+  username: string;
+  first_name: string;
+  last_name: string;
+  password: string;
   is_staff: boolean;
 }
 
 // 2. Можливі статуси клієнта (фіксований список значень)
-export type ClientStatus = 'lead' | 'in_progress' | 'active' | 'closed';
+export type ClientStatus = 'lead' | 'active' | 'inactive';
 
 // 3. Інтерфейс клієнта (відповідає ClientSerializer)
 export interface Client {
@@ -17,11 +28,20 @@ export interface Client {
   email: string;
   phone: string;
   status: ClientStatus;
-  status_display?: string;
   responsible_manager: number | null;
   manager_name?: string;
   created_at: string;
   updated_at: string;
+}
+
+// Дані для створення нового клієнта
+export interface CreateClientPayload {
+  first_name: string;
+  last_name: string;
+  email: string;
+  phone?: string;
+  status?: ClientStatus;
+  responsible_manager?: number | null;
 }
 
 // 4. Етапи воронки угод (відповідає STAGE_CHOICES у Django)
@@ -38,6 +58,14 @@ export interface Deal {
   client_name: string; // Текстове ім'я, згенероване через select_related
   created_at: string;
   updated_at: string;
+}
+
+// Дані для створення нової угоди
+export interface CreateDealPayload {
+  title: string;
+  amount: string;
+  stage: DealStage;
+  client: number;
 }
 
 // 6. Формат відповіді SimpleJWT при авторизації

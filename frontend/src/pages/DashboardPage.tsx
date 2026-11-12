@@ -1,13 +1,13 @@
 import { useState, useEffect } from 'react';
 import { getDeals, updateDealStage } from '../api/crm';
-import type { Deal, DealStage } from '../types';
-import { getCurrentUsername } from '../api/auth';
+import { getCurrentUser, getCurrentUsername } from '../api/auth';
+import type { Deal, DealStage, User } from '../types';
+import { CreateDealModal } from '../components/CreateDealModal';
+import { TeamModal } from '../components/TeamModal';
 
 interface DashboardPageProps {
   onLogout: () => void;
 }
-
-
 
 // Конфігурація бізнес-статусів без кислотних кольорів
 const STAGE_CONFIG: Record<DealStage, { label: string; bg: string; text: string; border: string }> = {
@@ -19,20 +19,29 @@ const STAGE_CONFIG: Record<DealStage, { label: string; bg: string; text: string;
 };
 
 export const DashboardPage = ({ onLogout }: DashboardPageProps) => {
-  const currentUsername = getCurrentUsername();
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
   const [deals, setDeals] = useState<Deal[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Завантаження угод при першому відкритті сторінки
+  // Стани відкриття модальних вікон
+  const [isCreateDealOpen, setIsCreateDealOpen] = useState<boolean>(false);
+  const [isTeamModalOpen, setIsTeamModalOpen] = useState<boolean>(false);
+
+  // Паралельне завантаження профілю користувача та списку угод
   useEffect(() => {
     let isMounted = true;
 
-    const loadDeals = async () => {
+    const loadDashboardData = async () => {
       try {
-        const data = await getDeals();
+        const [dealsData, userData] = await Promise.all([
+          getDeals(),
+          getCurrentUser(),
+        ]);
+
         if (isMounted) {
-          setDeals(data);
+          setDeals(dealsData);
+          setCurrentUser(userData);
           setError(null);
         }
       } catch {
@@ -46,7 +55,7 @@ export const DashboardPage = ({ onLogout }: DashboardPageProps) => {
       }
     };
 
-    loadDeals();
+    loadDashboardData();
 
     return () => {
       isMounted = false;
@@ -63,7 +72,16 @@ export const DashboardPage = ({ onLogout }: DashboardPageProps) => {
     }
   };
 
-  // Розрахунок реальних бізнес-метрик замість дебаг-інформації
+  // Додавання нової угоди на початок списку без перезавантаження сторінки
+  const handleDealCreated = (newDeal: Deal) => {
+    setDeals((prev) => [newDeal, ...prev]);
+  };
+
+  // Визначення ролі на основі реальних прав із бекенду (/api/me/)
+  const displayUsername = currentUser?.username || getCurrentUsername();
+  const isAdmin = Boolean(currentUser?.is_staff || currentUser?.is_superuser);
+
+  // Розрахунок реальних бізнес-метрик
   const activeDeals = deals.filter((d) => d.stage !== 'won' && d.stage !== 'lost');
   const pipelineSum = activeDeals.reduce((sum, d) => sum + parseFloat(d.amount || '0'), 0);
   const wonSum = deals
@@ -75,28 +93,39 @@ export const DashboardPage = ({ onLogout }: DashboardPageProps) => {
       {/* 1. Верхня панель (Topbar) */}
       <header className="border-b border-slate-200 bg-white sticky top-0 z-10">
         <div className="max-w-6xl mx-auto px-6 h-14 flex items-center justify-between">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-6">
             <span className="font-semibold tracking-tight text-slate-900 text-base">
               Workspace CRM
             </span>
+
+            {/* Кнопка управління командою відображається лише адміністратору */}
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => setIsTeamModalOpen(true)}
+                className="text-xs font-medium text-slate-600 hover:text-slate-900 px-2.5 py-1.5 rounded-md hover:bg-slate-100 transition-colors"
+              >
+                Команда
+              </button>
+            )}
           </div>
 
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2">
-                <span className={`w-2 h-2 rounded-full ${currentUsername === 'Sava' ? 'bg-indigo-600' : 'bg-emerald-500'}`} />
-                <span className="text-xs font-semibold text-slate-800">
-                    {currentUsername}
-                </span>
-                <span className="text-[11px] text-slate-400 font-medium">
-                    {currentUsername === 'Sava' ? 'Адміністратор' : 'Менеджер'}
-                </span>
+              <span className={`w-2 h-2 rounded-full ${isAdmin ? 'bg-indigo-600' : 'bg-emerald-500'}`} />
+              <span className="text-xs font-semibold text-slate-800">
+                {displayUsername}
+              </span>
+              <span className="text-[11px] text-slate-400 font-medium">
+                {isAdmin ? 'Адміністратор' : 'Менеджер'}
+              </span>
             </div>
             <div className="h-4 w-px bg-slate-200" />
             <button
-                onClick={onLogout}
-                className="text-xs font-medium text-slate-600 hover:text-slate-900 transition-colors"
+              onClick={onLogout}
+              className="text-xs font-medium text-slate-600 hover:text-slate-900 transition-colors"
             >
-                Вийти
+              Вийти
             </button>
           </div>
         </div>
@@ -104,7 +133,6 @@ export const DashboardPage = ({ onLogout }: DashboardPageProps) => {
 
       {/* 2. Основна робоча область */}
       <main className="max-w-6xl mx-auto px-6 py-8 space-y-6">
-        
         {/* Блок ключових показників (KPI) */}
         <section className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <div className="bg-white p-4 rounded-lg border border-slate-200">
@@ -129,14 +157,25 @@ export const DashboardPage = ({ onLogout }: DashboardPageProps) => {
           </div>
         </section>
 
-        {/* Заголовок розділу таблиці */}
+        {/* Заголовок розділу таблиці та кнопка створення */}
         <div className="flex items-center justify-between pt-2">
-          <h1 className="text-lg font-semibold text-slate-900">
-            Угоди
-          </h1>
-          <span className="text-xs text-slate-500">
-            Всього позицій: {deals.length}
-          </span>
+          <div className="flex items-baseline gap-3">
+            <h1 className="text-lg font-semibold text-slate-900">
+              Угоди
+            </h1>
+            <span className="text-xs text-slate-500">
+              Всього позицій: {deals.length}
+            </span>
+          </div>
+
+          <button
+            type="button"
+            disabled={!currentUser}
+            onClick={() => setIsCreateDealOpen(true)}
+            className="px-3.5 py-2 text-xs font-medium text-white bg-slate-900 rounded-md hover:bg-slate-800 disabled:opacity-50 transition-colors"
+          >
+            + Нова угода
+          </button>
         </div>
 
         {error && (
@@ -152,7 +191,7 @@ export const DashboardPage = ({ onLogout }: DashboardPageProps) => {
           </div>
         ) : deals.length === 0 ? (
           <div className="py-12 text-center text-xs text-slate-500 bg-white border border-slate-200 rounded-lg">
-            Список порожній.
+            Список порожній. Натисніть «+ Нова угода», щоб додати перший запис.
           </div>
         ) : (
           <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
@@ -180,7 +219,6 @@ export const DashboardPage = ({ onLogout }: DashboardPageProps) => {
                         ${parseFloat(deal.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                       </td>
                       <td className="py-3 px-4 text-right">
-                        {/* Єдиний інтерактивний селектор статусу замість подвійних колонок */}
                         <div className="inline-block relative">
                           <select
                             value={deal.stage}
@@ -193,7 +231,6 @@ export const DashboardPage = ({ onLogout }: DashboardPageProps) => {
                               </option>
                             ))}
                           </select>
-                          {/* Охайна мінімалістична стрілка замість дефолтної стрілки браузера */}
                           <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-1.5 text-slate-400">
                             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
@@ -209,6 +246,24 @@ export const DashboardPage = ({ onLogout }: DashboardPageProps) => {
           </div>
         )}
       </main>
+
+      {/* Модальне вікно створення угоди */}
+      {currentUser && (
+        <CreateDealModal
+          isOpen={isCreateDealOpen}
+          currentUser={currentUser}
+          onClose={() => setIsCreateDealOpen(false)}
+          onDealCreated={handleDealCreated}
+        />
+      )}
+
+      {/* Модальне вікно управління командою (тільки для адміністратора) */}
+      {isAdmin && (
+        <TeamModal
+          isOpen={isTeamModalOpen}
+          onClose={() => setIsTeamModalOpen(false)}
+        />
+      )}
     </div>
   );
 };

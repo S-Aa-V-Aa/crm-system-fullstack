@@ -1,5 +1,5 @@
 import apiClient from './client';
-import type { Client, Deal } from '../types';
+import type { Client, Deal, CreateClientPayload, CreateDealPayload } from '../types';
 
 // ==================== КЛІЄНТИ ====================
 
@@ -11,7 +11,7 @@ export const getClients = async (searchTerm?: string): Promise<Client[]> => {
 };
 
 // Створення нового клієнта в базі через модальне вікно
-export const createClient = async (clientData: Omit<Client, 'id' | 'created_at' | 'updated_at'>): Promise<Client> => {
+export const createClient = async (clientData: CreateClientPayload): Promise<Client> => {
   const response = await apiClient.post<Client>('/clients/', clientData);
   return response.data;
 };
@@ -21,6 +21,11 @@ export const createClient = async (clientData: Omit<Client, 'id' | 'created_at' 
 // Отримання списку всіх комерційних угод
 export const getDeals = async (): Promise<Deal[]> => {
   const response = await apiClient.get<Deal[]>('/deals/');
+  return response.data;
+};
+
+export const createDeal = async (dealData: CreateDealPayload): Promise<Deal> => {
+  const response = await apiClient.post<Deal>('/deals/', dealData);
   return response.data;
 };
 
