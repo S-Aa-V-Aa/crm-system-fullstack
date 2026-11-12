@@ -1,6 +1,28 @@
+from django.contrib.auth.models import User
 from rest_framework import serializers
 from .models import Client, Deal
 
+class UserProfileSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ['id', 'username', 'first_name', 'last_name', 'is_staff', 'is_superuser']
+
+class CreateUserSerializer(serializers.ModelSerializer):
+    password = serializers.CharField(write_only=True, min_length=6)
+    is_staff = serializers.BooleanField(default=False)
+
+    class Meta:
+        model = User
+        fields = ['id', 'username', 'first_name', 'last_name', 'password', 'is_staff']
+
+    def create(self, validated_data):
+        return User.objects.create_user(
+            username=validated_data['username'],
+            password=validated_data['password'],
+            first_name=validated_data.get('first_name', ''),
+            last_name=validated_data.get('last_name', ''),
+            is_staff=validated_data.get('is_staff', False),
+        )
 class ClientSerializer(serializers.ModelSerializer):
     # Додаткове поле, яке віддає логін менеджера у вигляді простого рядка
     manager_name = serializers.ReadOnlyField(source='responsible_manager.username')

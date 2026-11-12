@@ -1,9 +1,36 @@
-from rest_framework import viewsets, filters
+from django.contrib.auth.models import User
+from rest_framework import viewsets, filters, generics
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated, IsAdminUser
+from rest_framework.exceptions import PermissionDenied
 from django_filters.rest_framework import DjangoFilterBackend
 from .models import Client, Deal
-from .serializers import ClientSerializer, DealSerializer
+from .serializers import (
+    ClientSerializer,
+    DealSerializer,
+    UserProfileSerializer,
+    CreateUserSerializer,
+)
 from .permissions import IsAdminOrResponsibleManager
 
+
+class CurrentUserView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        serializer = UserProfileSerializer(request.user)
+        return Response(serializer.data)
+
+
+class UserManagementView(generics.ListCreateAPIView):
+    permission_classes = [IsAdminUser]
+    queryset = User.objects.filter(is_active=True).order_by('username')
+
+    def get_serializer_class(self):
+        if self.request.method == 'POST':
+            return CreateUserSerializer
+        return UserProfileSerializer
 class ClientViewSet(viewsets.ModelViewSet):
     serializer_class = ClientSerializer
     permission_classes =[IsAdminOrResponsibleManager]
@@ -29,8 +56,13 @@ class ClientViewSet(viewsets.ModelViewSet):
         return Client.objects.filter(responsible_manager=user).order_by('-created_at')
 
     def perform_create(self, serializer):
-        # Автоматично зберігаємо поточного залогіненого юзера як відповідального менеджера
-        serializer.save(responsible_manager=self.request.user)
+        user = self.request.user
+        if user.is_staff or user.is_superuser:
+            # Адмін сам обирає responsible_manager у формі (або залишає порожнім)
+            serializer.save()
+        else:
+            # Звичайний менеджер автоматично закріплює клієнта за собою
+            serializer.save(responsible_manager=user)
 
 class DealViewSet(viewsets.ModelViewSet):
     serializer_class = DealSerializer
@@ -55,4 +87,13 @@ class DealViewSet(viewsets.ModelViewSet):
             return Deal.objects.all().select_related('client').order_by('-created_at')
         # Менеджер бачить лише ті угоди, де він закріплений за клієнтом
         return Deal.objects.filter(client__responsible_manager=user).select_related('client').order_by('-created_at')
+
+    def perform_create(self, serializer):
+        user = self.request.user
+        client = serializer.validated_data['client']
+        # Захист від IDOR: менеджер не може створити угоду для клієнта іншого менеджера
+        if not (user.is_staff or user.is_superuser) and client.responsible_manager != user:
+            raise PermissionDenied('Ви не можете створювати угоди для чужого клієнта.')
+        serializer.save()
+
     
