@@ -1,3 +1,5 @@
+from django.db.models import Sum, Count, Q
+from rest_framework.decorators import action
 from django.contrib.auth.models import User
 from rest_framework import viewsets, filters, generics
 from rest_framework.views import APIView
@@ -111,5 +113,19 @@ class DealViewSet(viewsets.ModelViewSet):
         if not (user.is_staff or user.is_superuser) and client.responsible_manager != user:
             raise PermissionDenied('Ви не можете прив\'язати угоду до чужого клієнта.')
         serializer.save()
-        
+
+    @action(detail=False, methods=['get'])
+    def stats(self, request):
+        queryset = self.get_queryset()
+        aggregated = queryset.aggregate(
+            active_count=Count('id', filter=~Q(stage__in=['won', 'lost'])),
+            pipeline_sum=Sum('amount', filter=~Q(stage__in=['won', 'lost'])),
+            won_sum=Sum('amount', filter=Q(stage='won')),
+        )
+        return Response({
+            'active_count': aggregated['active_count'] or 0,
+            'pipeline_sum': str(aggregated['pipeline_sum'] or '0.00'),
+            'won_sum': str(aggregated['won_sum'] or '0.00'),
+        })
+
     

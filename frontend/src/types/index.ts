@@ -85,3 +85,17 @@ export interface AuthResponse {
   access: string;
   refresh: string;
 }
+
+// Дані серверної аналітики KPI (/api/deals/stats/)
+export interface DealStats {
+  active_count: number;
+  pipeline_sum: string;
+  won_sum: string;
+}
+
+// Параметри пошуку, фільтрації та сортування угод
+export interface DealFilters {
+  search?: string;
+  stage?: DealStage | '';
+  ordering?: string;
+}

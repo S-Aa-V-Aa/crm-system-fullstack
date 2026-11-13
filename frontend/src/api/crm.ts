@@ -2,6 +2,8 @@ import apiClient from './client';
 import type {
   Client,
   Deal,
+  DealStats,
+  DealFilters,
   CreateClientPayload,
   CreateDealPayload,
   UpdateDealPayload,
@@ -20,7 +22,6 @@ export const createClient = async (clientData: CreateClientPayload): Promise<Cli
   return response.data;
 };
 
-// Перепризначення відповідального менеджера для клієнта (доступно адміністратору)
 export const reassignClientManager = async (
   clientId: number,
   managerId: number | null
@@ -33,8 +34,27 @@ export const reassignClientManager = async (
 
 // ==================== УГОДИ ====================
 
-export const getDeals = async (): Promise<Deal[]> => {
-  const response = await apiClient.get<Deal[]>('/deals/');
+// Отримання списку угод з урахуванням пошуку, фільтра за етапом та сортування
+export const getDeals = async (filters?: DealFilters): Promise<Deal[]> => {
+  const params: Record<string, string> = {};
+
+  if (filters?.search?.trim()) {
+    params.search = filters.search.trim();
+  }
+  if (filters?.stage) {
+    params.stage = filters.stage;
+  }
+  if (filters?.ordering) {
+    params.ordering = filters.ordering;
+  }
+
+  const response = await apiClient.get<Deal[]>('/deals/', { params });
+  return response.data;
+};
+
+// Отримання загальних KPI-показників компанії/менеджера з бекенду
+export const getDealStats = async (): Promise<DealStats> => {
+  const response = await apiClient.get<DealStats>('/deals/stats/');
   return response.data;
 };
 
@@ -48,13 +68,11 @@ export const updateDealStage = async (dealId: number, stage: Deal['stage']): Pro
   return response.data;
 };
 
-// Повне або часткове редагування параметрів угоди
 export const updateDeal = async (dealId: number, dealData: UpdateDealPayload): Promise<Deal> => {
   const response = await apiClient.patch<Deal>(`/deals/${dealId}/`, dealData);
   return response.data;
 };
 
-// Видалення угоди з бази даних
 export const deleteDeal = async (dealId: number): Promise<void> => {
   await apiClient.delete(`/deals/${dealId}/`);
 };
