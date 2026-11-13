@@ -29,7 +29,8 @@ export interface Client {
   phone: string;
   status: ClientStatus;
   responsible_manager: number | null;
-  manager_name?: string;
+  manager_name?: string | null;
+  manager_is_active?: boolean | null;
   created_at: string;
   updated_at: string;
 }
@@ -56,6 +57,9 @@ export interface Deal {
   stage_display: string;
   client: number; // ID пов'язаного клієнта
   client_name: string; // Текстове ім'я, згенероване через select_related
+  responsible_manager: number | null;
+  manager_name: string | null;
+  manager_is_active: boolean | null;
   created_at: string;
   updated_at: string;
 }
@@ -66,6 +70,14 @@ export interface CreateDealPayload {
   amount: string;
   stage: DealStage;
   client: number;
+}
+
+// Дані для часткового оновлення угоди (PATCH)
+export interface UpdateDealPayload {
+  title?: string;
+  amount?: string;
+  stage?: DealStage;
+  client?: number;
 }
 
 // 6. Формат відповіді SimpleJWT при авторизації

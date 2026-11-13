@@ -1,6 +1,6 @@
 import { useState, useEffect, type SyntheticEvent } from 'react';
 import axios from 'axios';
-import { getClients, createClient, createDeal } from '../api/crm';
+import { getClients, createClient, createDeal, reassignClientManager } from '../api/crm';
 import { getUsers } from '../api/auth';
 import type { Client, Deal, DealStage, User } from '../types';
 
@@ -35,17 +35,18 @@ export const CreateDealModal = ({
   const [managers, setManagers] = useState<User[]>([]);
   const [isLoadingLists, setIsLoadingLists] = useState<boolean>(false);
 
-  // Поля нового клієнта (відповідають моделі Client)
+  // Поля нового клієнта
   const [firstName, setFirstName] = useState<string>('');
   const [lastName, setLastName] = useState<string>('');
   const [email, setEmail] = useState<string>('');
   const [phone, setPhone] = useState<string>('');
-  const [selectedManagerId, setSelectedManagerId] = useState<string>('');
+  const [newClientManagerId, setNewClientManagerId] = useState<string>(String(currentUser.id));
 
-  // Поле існуючого клієнта
+  // Поля існуючого клієнта та його відповідального менеджера
   const [selectedClientId, setSelectedClientId] = useState<string>('');
+  const [existingClientManagerId, setExistingClientManagerId] = useState<string>('');
 
-  // Поля комерційної угоди (відповідають моделі Deal)
+  // Поля комерційної угоди
   const [title, setTitle] = useState<string>('');
   const [amount, setAmount] = useState<string>('');
   const [stage, setStage] = useState<DealStage>('new');
@@ -54,7 +55,7 @@ export const CreateDealModal = ({
   const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Завантаження клієнтів (і менеджерів для адміна) при відкритті вікна
+  // Завантаження клієнтів (і активних менеджерів для адміна) при відкритті вікна
   useEffect(() => {
     if (!isOpen) return;
 
@@ -67,7 +68,15 @@ export const CreateDealModal = ({
         if (isMounted) {
           setClients(clientsData);
           if (clientsData.length > 0) {
-            setSelectedClientId(String(clientsData[0].id));
+            const firstClient = clientsData[0];
+            setSelectedClientId(String(firstClient.id));
+
+            // Якщо менеджер першого клієнта активний — підставляємо його ID, якщо звільнений — лишаємо порожнім
+            const isFirstManagerActive =
+              Boolean(firstClient.responsible_manager) && firstClient.manager_is_active !== false;
+            setExistingClientManagerId(
+              isFirstManagerActive ? String(firstClient.responsible_manager) : ''
+            );
           }
         }
 
@@ -75,7 +84,7 @@ export const CreateDealModal = ({
           const usersData = await getUsers();
           if (isMounted) {
             setManagers(usersData);
-            setSelectedManagerId(String(currentUser.id));
+            setNewClientManagerId(String(currentUser.id));
           }
         }
       } catch {
@@ -114,6 +123,17 @@ export const CreateDealModal = ({
 
   if (!isOpen) return null;
 
+  // Оновлення обраного клієнта та синхронізація його поточного активного менеджера
+  const handleExistingClientChange = (clientIdStr: string) => {
+    setSelectedClientId(clientIdStr);
+    const found = clients.find((c) => String(c.id) === clientIdStr);
+    if (found) {
+      const isManagerActive =
+        Boolean(found.responsible_manager) && found.manager_is_active !== false;
+      setExistingClientManagerId(isManagerActive ? String(found.responsible_manager) : '');
+    }
+  };
+
   const resetForm = () => {
     setFirstName('');
     setLastName('');
@@ -124,6 +144,11 @@ export const CreateDealModal = ({
     setStage('new');
     setError(null);
   };
+
+  const selectedExistingClient = clients.find((c) => String(c.id) === selectedClientId);
+  const isExistingManagerDeactivated =
+    Boolean(selectedExistingClient?.responsible_manager) &&
+    selectedExistingClient?.manager_is_active === false;
 
   const handleSubmit = async (e: SyntheticEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -141,7 +166,7 @@ export const CreateDealModal = ({
       let targetClientId: number;
 
       if (clientMode === 'new') {
-        // 1. Створюємо нового клієнта в базі
+        // 1А. Створюємо нового клієнта
         const createdClient = await createClient({
           first_name: firstName.trim(),
           last_name: lastName.trim(),
@@ -149,7 +174,7 @@ export const CreateDealModal = ({
           phone: phone.trim(),
           status: 'lead',
           ...(isAdmin && {
-            responsible_manager: selectedManagerId ? Number(selectedManagerId) : null,
+            responsible_manager: newClientManagerId ? Number(newClientManagerId) : null,
           }),
         });
         targetClientId = createdClient.id;
@@ -160,6 +185,18 @@ export const CreateDealModal = ({
           return;
         }
         targetClientId = Number(selectedClientId);
+
+        // 1Б. Якщо адміністратор змінив або перепризначив менеджера існуючому клієнту — оновлюємо клієнта
+        const rawCurrentManagerId = selectedExistingClient?.responsible_manager
+          ? String(selectedExistingClient.responsible_manager)
+          : '';
+
+        if (isAdmin && existingClientManagerId !== rawCurrentManagerId) {
+          await reassignClientManager(
+            targetClientId,
+            existingClientManagerId ? Number(existingClientManagerId) : null
+          );
+        }
       }
 
       // 2. Створюємо угоду, прив'язану до отриманого ID клієнта
@@ -177,7 +214,7 @@ export const CreateDealModal = ({
       if (axios.isAxiosError(err) && err.response?.data) {
         const data = err.response.data as Record<string, string[] | string>;
         if (Array.isArray(data.email)) {
-          setError('Клієнт із таким email уже зареєстрований. Оберіть його у вкладці «Існуючий клієнт».');
+          setError('Клієнт із таким email уже зареєстрований. Оберіть його у вкладці «Існуючий».');
         } else if (typeof data.detail === 'string') {
           setError(data.detail);
         } else {
@@ -191,14 +228,11 @@ export const CreateDealModal = ({
     }
   };
 
-  const selectedExistingClient = clients.find((c) => String(c.id) === selectedClientId);
-
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-[1px] p-4"
       onClick={() => !isSubmitting && onClose()}
     >
-      {/* Зупиняємо спливання кліку (stopPropagation), щоб клік усередині форми не закривав вікно */}
       <div
         className="w-full max-w-lg bg-white border border-slate-200 rounded-lg shadow-lg overflow-hidden"
         onClick={(e) => e.stopPropagation()}
@@ -325,7 +359,6 @@ export const CreateDealModal = ({
                   </div>
                 </div>
 
-                {/* Вибір відповідального менеджера (відображається виключно адміністратору) */}
                 {isAdmin && (
                   <div>
                     <label className="block text-xs font-medium text-slate-700 mb-1">
@@ -333,8 +366,8 @@ export const CreateDealModal = ({
                     </label>
                     <div className="relative">
                       <select
-                        value={selectedManagerId}
-                        onChange={(e) => setSelectedManagerId(e.target.value)}
+                        value={newClientManagerId}
+                        onChange={(e) => setNewClientManagerId(e.target.value)}
                         className="w-full px-3 py-1.5 pr-8 text-sm bg-white border border-slate-200 rounded-md appearance-none focus:outline-none focus:border-slate-400"
                       >
                         <option value="">Не призначено</option>
@@ -354,7 +387,7 @@ export const CreateDealModal = ({
                 )}
               </div>
             ) : (
-              <div className="p-3.5 bg-slate-50/75 border border-slate-200 rounded-lg space-y-2">
+              <div className="p-3.5 bg-slate-50/75 border border-slate-200 rounded-lg space-y-3">
                 {isLoadingLists ? (
                   <p className="text-xs text-slate-500">Завантаження списку клієнтів...</p>
                 ) : clients.length === 0 ? (
@@ -363,31 +396,69 @@ export const CreateDealModal = ({
                   </p>
                 ) : (
                   <>
-                    <label className="block text-xs font-medium text-slate-700">
-                      Оберіть клієнта з бази *
-                    </label>
-                    <div className="relative">
-                      <select
-                        value={selectedClientId}
-                        onChange={(e) => setSelectedClientId(e.target.value)}
-                        className="w-full px-3 py-1.5 pr-8 text-sm bg-white border border-slate-200 rounded-md appearance-none focus:outline-none focus:border-slate-400"
-                      >
-                        {clients.map((client) => (
-                          <option key={client.id} value={client.id}>
-                            {client.first_name} {client.last_name} ({client.email})
-                          </option>
-                        ))}
-                      </select>
-                      <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2.5 text-slate-400">
-                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-                        </svg>
+                    <div>
+                      <label className="block text-xs font-medium text-slate-700 mb-1">
+                        Оберіть клієнта з бази *
+                      </label>
+                      <div className="relative">
+                        <select
+                          value={selectedClientId}
+                          onChange={(e) => handleExistingClientChange(e.target.value)}
+                          className="w-full px-3 py-1.5 pr-8 text-sm bg-white border border-slate-200 rounded-md appearance-none focus:outline-none focus:border-slate-400"
+                        >
+                          {clients.map((client) => (
+                            <option key={client.id} value={client.id}>
+                              {client.first_name} {client.last_name} ({client.email})
+                            </option>
+                          ))}
+                        </select>
+                        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2.5 text-slate-400">
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                          </svg>
+                        </div>
                       </div>
                     </div>
-                    {selectedExistingClient && (
-                      <p className="text-[11px] text-slate-500">
-                        Відповідальний: {selectedExistingClient.manager_name || 'Не призначено'}
-                      </p>
+
+                    {/* Для адміна: селектор перепризначення менеджера існуючому клієнту */}
+                    {isAdmin ? (
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between">
+                          <label className="block text-xs font-medium text-slate-700">
+                            Відповідальний менеджер
+                          </label>
+                          {isExistingManagerDeactivated && (
+                            <span className="text-[11px] font-medium text-amber-700 bg-amber-50 border border-amber-200 px-2 py-0.5 rounded">
+                              Попередній ({selectedExistingClient?.manager_name}) звільнений
+                            </span>
+                          )}
+                        </div>
+                        <div className="relative">
+                          <select
+                            value={existingClientManagerId}
+                            onChange={(e) => setExistingClientManagerId(e.target.value)}
+                            className="w-full px-3 py-1.5 pr-8 text-sm bg-white border border-slate-200 rounded-md appearance-none focus:outline-none focus:border-slate-400"
+                          >
+                            <option value="">Не призначено</option>
+                            {managers.map((m) => (
+                              <option key={m.id} value={m.id}>
+                                {m.username} {m.is_staff ? '(Адміністратор)' : '(Менеджер)'}
+                              </option>
+                            ))}
+                          </select>
+                          <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2.5 text-slate-400">
+                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                            </svg>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      selectedExistingClient && (
+                        <p className="text-[11px] text-slate-500">
+                          Відповідальний: {selectedExistingClient.manager_name || 'Не призначено'}
+                        </p>
+                      )
                     )}
                   </>
                 )}

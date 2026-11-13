@@ -3,13 +3,13 @@ import { getDeals, updateDealStage } from '../api/crm';
 import { getCurrentUser, getCurrentUsername } from '../api/auth';
 import type { Deal, DealStage, User } from '../types';
 import { CreateDealModal } from '../components/CreateDealModal';
+import { EditDealModal } from '../components/EditDealModal';
 import { TeamModal } from '../components/TeamModal';
 
 interface DashboardPageProps {
   onLogout: () => void;
 }
 
-// Конфігурація бізнес-статусів без кислотних кольорів
 const STAGE_CONFIG: Record<DealStage, { label: string; bg: string; text: string; border: string }> = {
   new: { label: 'Нова', bg: 'bg-slate-50', text: 'text-slate-700', border: 'border-slate-200' },
   proposal: { label: 'Пропозиція', bg: 'bg-blue-50', text: 'text-blue-700', border: 'border-blue-200' },
@@ -24,11 +24,11 @@ export const DashboardPage = ({ onLogout }: DashboardPageProps) => {
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
-  // Стани відкриття модальних вікон
+  // Стани модальних вікон
   const [isCreateDealOpen, setIsCreateDealOpen] = useState<boolean>(false);
+  const [editingDeal, setEditingDeal] = useState<Deal | null>(null);
   const [isTeamModalOpen, setIsTeamModalOpen] = useState<boolean>(false);
 
-  // Паралельне завантаження профілю користувача та списку угод
   useEffect(() => {
     let isMounted = true;
 
@@ -62,7 +62,6 @@ export const DashboardPage = ({ onLogout }: DashboardPageProps) => {
     };
   }, []);
 
-  // Оновлення статусу угоди прямо в таблиці
   const handleStageChange = async (dealId: number, nextStage: DealStage) => {
     try {
       const updated = await updateDealStage(dealId, nextStage);
@@ -72,16 +71,39 @@ export const DashboardPage = ({ onLogout }: DashboardPageProps) => {
     }
   };
 
-  // Додавання нової угоди на початок списку без перезавантаження сторінки
   const handleDealCreated = (newDeal: Deal) => {
     setDeals((prev) => [newDeal, ...prev]);
   };
 
-  // Визначення ролі на основі реальних прав із бекенду (/api/me/)
+  // Оновлення угоди в списку (та синхронізація менеджера для інших угод цього ж клієнта)
+  const handleDealUpdated = (updatedDeal: Deal) => {
+    setDeals((prev) =>
+      prev.map((item) => {
+        if (item.id === updatedDeal.id) {
+          return updatedDeal;
+        }
+        // Якщо змінився відповідальний менеджер клієнта — оновлюємо його в усіх угодах цього клієнта
+        if (item.client === updatedDeal.client) {
+          return {
+            ...item,
+            responsible_manager: updatedDeal.responsible_manager,
+            manager_name: updatedDeal.manager_name,
+            manager_is_active: updatedDeal.manager_is_active,
+          };
+        }
+        return item;
+      })
+    );
+  };
+
+  // Видалення угоди зі списку без перезавантаження сторінки
+  const handleDealDeleted = (deletedDealId: number) => {
+    setDeals((prev) => prev.filter((item) => item.id !== deletedDealId));
+  };
+
   const displayUsername = currentUser?.username || getCurrentUsername();
   const isAdmin = Boolean(currentUser?.is_staff || currentUser?.is_superuser);
 
-  // Розрахунок реальних бізнес-метрик
   const activeDeals = deals.filter((d) => d.stage !== 'won' && d.stage !== 'lost');
   const pipelineSum = activeDeals.reduce((sum, d) => sum + parseFloat(d.amount || '0'), 0);
   const wonSum = deals
@@ -98,7 +120,6 @@ export const DashboardPage = ({ onLogout }: DashboardPageProps) => {
               Workspace CRM
             </span>
 
-            {/* Кнопка управління командою відображається лише адміністратору */}
             {isAdmin && (
               <button
                 type="button"
@@ -200,13 +221,18 @@ export const DashboardPage = ({ onLogout }: DashboardPageProps) => {
                 <tr className="border-b border-slate-200 bg-slate-50/75 text-xs font-medium text-slate-500">
                   <th className="py-3 px-4">Назва</th>
                   <th className="py-3 px-4">Клієнт</th>
+                  <th className="py-3 px-4">Відповідальний</th>
                   <th className="py-3 px-4">Сума</th>
-                  <th className="py-3 px-4 w-48 text-right">Статус</th>
+                  <th className="py-3 px-4 w-44 text-right">Статус</th>
+                  <th className="py-3 px-4 w-24 text-right">Дії</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {deals.map((deal) => {
                   const stage = STAGE_CONFIG[deal.stage] || STAGE_CONFIG.new;
+                  const isOwnerDeactivated =
+                    Boolean(deal.responsible_manager) && deal.manager_is_active === false;
+
                   return (
                     <tr key={deal.id} className="hover:bg-slate-50/60 transition-colors">
                       <td className="py-3 px-4 font-medium text-slate-900">
@@ -214,6 +240,20 @@ export const DashboardPage = ({ onLogout }: DashboardPageProps) => {
                       </td>
                       <td className="py-3 px-4 text-slate-600">
                         {deal.client_name || `Клієнт #${deal.client}`}
+                      </td>
+                      <td className="py-3 px-4 text-xs">
+                        {deal.manager_name ? (
+                          <div className="inline-flex items-center gap-1.5">
+                            <span className="text-slate-700 font-medium">{deal.manager_name}</span>
+                            {isOwnerDeactivated && (
+                              <span className="px-1.5 py-0.5 text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200 rounded">
+                                звільнений
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-slate-400">Не призначено</span>
+                        )}
                       </td>
                       <td className="py-3 px-4 font-mono text-slate-900 font-medium">
                         ${parseFloat(deal.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}
@@ -238,6 +278,15 @@ export const DashboardPage = ({ onLogout }: DashboardPageProps) => {
                           </div>
                         </div>
                       </td>
+                      <td className="py-3 px-4 text-right">
+                        <button
+                          type="button"
+                          onClick={() => setEditingDeal(deal)}
+                          className="text-xs font-medium text-slate-600 hover:text-slate-900 px-2 py-1 rounded hover:bg-slate-100 transition-colors"
+                        >
+                          Редагувати
+                        </button>
+                      </td>
                     </tr>
                   );
                 })}
@@ -257,7 +306,19 @@ export const DashboardPage = ({ onLogout }: DashboardPageProps) => {
         />
       )}
 
-      {/* Модальне вікно управління командою (тільки для адміністратора) */}
+      {/* Модальне вікно редагування, перепризначення та видалення угоди */}
+      {currentUser && editingDeal && (
+        <EditDealModal
+          key={editingDeal.id}
+          deal={editingDeal}
+          currentUser={currentUser}
+          onClose={() => setEditingDeal(null)}
+          onDealUpdated={handleDealUpdated}
+          onDealDeleted={handleDealDeleted}
+        />
+      )}
+
+      {/* Модальне вікно управління командою */}
       {isAdmin && currentUser && (
         <TeamModal
           isOpen={isTeamModalOpen}

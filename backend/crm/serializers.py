@@ -31,8 +31,10 @@ class UserUpdateSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'username', 'first_name', 'last_name', 'is_superuser']
 
 class ClientSerializer(serializers.ModelSerializer):
-    # Додаткове поле, яке віддає логін менеджера у вигляді простого рядка
+    # Логін закріпленого менеджера (або None, якщо не призначено)
     manager_name = serializers.ReadOnlyField(source='responsible_manager.username')
+    # Прапорець, чи не звільнений цей менеджер (True/False)
+    manager_is_active = serializers.ReadOnlyField(source='responsible_manager.is_active')
 
     class Meta:
         model = Client
@@ -45,16 +47,21 @@ class ClientSerializer(serializers.ModelSerializer):
             'status',
             'responsible_manager',
             'manager_name',
+            'manager_is_active',
             'created_at',
             'updated_at',
         ]
 
-class DealSerializer(serializers.ModelSerializer):
-    # Відображення тексту статуссу замість технічоного ключа
-    stage_display = serializers.CharField(source='get_stage_display', read_only=True)
 
-    # Текстове представлення клієнта для швидкого виведення на фроненді
+class DealSerializer(serializers.ModelSerializer):
+    # Текстова назва етапу воронки замість технічного ключа ('new' -> 'Нова заявка')
+    stage_display = serializers.CharField(source='get_stage_display', read_only=True)
+    # Рядкове представлення клієнта (__str__ із моделі Client)
     client_name = serializers.ReadOnlyField(source='client.__str__')
+    # Дані відповідального менеджера, витягнуті через ланцюжок Deal -> Client -> User
+    responsible_manager = serializers.ReadOnlyField(source='client.responsible_manager.id')
+    manager_name = serializers.ReadOnlyField(source='client.responsible_manager.username')
+    manager_is_active = serializers.ReadOnlyField(source='client.responsible_manager.is_active')
 
     class Meta:
         model = Deal
@@ -66,6 +73,10 @@ class DealSerializer(serializers.ModelSerializer):
             'stage_display',
             'client',
             'client_name',
+            'responsible_manager',
+            'manager_name',
+            'manager_is_active',
             'created_at',
             'updated_at',
         ]
+        
