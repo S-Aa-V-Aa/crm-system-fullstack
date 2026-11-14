@@ -1,4 +1,6 @@
-from django.db.models import Sum, Count, Q
+from decimal import Decimal
+from django.db.models import Sum, Count, Q, Value
+from django.db.models.functions import Coalesce
 from rest_framework.decorators import action
 from django.contrib.auth.models import User
 from rest_framework import viewsets, filters, generics
@@ -59,15 +61,22 @@ class ClientViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAdminOrResponsibleManager]
 
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['status']
+    filterset_fields = ['status', 'responsible_manager']
     search_fields = ['first_name', 'last_name', 'email', 'phone']
-    ordering_fields = ['created_at', 'last_name']
+    ordering_fields = ['created_at', 'last_name', 'deals_count', 'won_amount']
 
     def get_queryset(self):
         user = self.request.user
+        base_qs = Client.objects.select_related('responsible_manager').annotate(
+            deals_count=Count('deals', distinct=True),
+            won_amount=Coalesce(
+                Sum('deals__amount', filter=Q(deals__stage='won')),
+                Value(Decimal('0.00')),
+            ),
+        )    
         if user.is_staff or user.is_superuser:
-            return Client.objects.all().order_by('-created_at')
-        return Client.objects.filter(responsible_manager=user).order_by('-created_at')
+            return base_qs.order_by('-created_at')
+        return base_qs.filter(responsible_manager=user).order_by('-created_at')
 
     def perform_create(self, serializer):
         user = self.request.user

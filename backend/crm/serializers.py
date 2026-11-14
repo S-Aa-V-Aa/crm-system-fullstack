@@ -35,6 +35,13 @@ class ClientSerializer(serializers.ModelSerializer):
     manager_name = serializers.ReadOnlyField(source='responsible_manager.username')
     # Прапорець, чи не звільнений цей менеджер (True/False)
     manager_is_active = serializers.ReadOnlyField(source='responsible_manager.is_active')
+    deals_count = serializers.IntegerField(read_only=True, default=0)
+    won_amount = serializers.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        read_only=True,
+        default='0.00',
+    )
 
     class Meta:
         model = Client
@@ -48,6 +55,8 @@ class ClientSerializer(serializers.ModelSerializer):
             'responsible_manager',
             'manager_name',
             'manager_is_active',
+            'deals_count',
+            'won_amount',
             'created_at',
             'updated_at',
         ]

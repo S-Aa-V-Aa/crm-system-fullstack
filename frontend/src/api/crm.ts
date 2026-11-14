@@ -4,15 +4,28 @@ import type {
   Deal,
   DealStats,
   DealFilters,
+  ClientFilters,
   CreateClientPayload,
+  UpdateClientPayload,
   CreateDealPayload,
   UpdateDealPayload,
 } from '../types';
 
 // ==================== КЛІЄНТИ ====================
 
-export const getClients = async (searchTerm?: string): Promise<Client[]> => {
-  const params = searchTerm ? { search: searchTerm } : {};
+export const getClients = async (filters?: ClientFilters): Promise<Client[]> => {
+  const params: Record<string, string> = {};
+
+  if (filters?.search?.trim()) {
+    params.search = filters.search.trim();
+  }
+  if (filters?.status) {
+    params.status = filters.status;
+  }
+  if (filters?.ordering) {
+    params.ordering = filters.ordering;
+  }
+
   const response = await apiClient.get<Client[]>('/clients/', { params });
   return response.data;
 };
@@ -21,6 +34,18 @@ export const createClient = async (clientData: CreateClientPayload): Promise<Cli
   const response = await apiClient.post<Client>('/clients/', clientData);
   return response.data;
 };
+
+export const updateClient = async(
+  clientId: number,
+  clientData: UpdateClientPayload
+): Promise<Client> => {
+  const response = await apiClient.patch<Client>(`/clients/${clientId}/`, clientData);
+  return response.data;
+};
+
+export const deleteClient = async (clientId: number): Promise<void> => {
+  await apiClient.delete(`/clients/${clientId}/`);
+}
 
 export const reassignClientManager = async (
   clientId: number,

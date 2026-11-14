@@ -31,6 +31,8 @@ export interface Client {
   responsible_manager: number | null;
   manager_name?: string | null;
   manager_is_active?: boolean | null;
+  deals_count?: number;
+  won_amount?: string;
   created_at: string;
   updated_at: string;
 }
@@ -43,6 +45,23 @@ export interface CreateClientPayload {
   phone?: string;
   status?: ClientStatus;
   responsible_manager?: number | null;
+}
+
+// Дані для часткового оновлення клієнта (PATCH)
+export interface UpdateClientPayload {
+  first_name?: string;
+  last_name?: string;
+  email?: string;
+  phone?: string;
+  status?: ClientStatus;
+  responsible_manager?: number | null;
+}
+
+// Параметри пошуку, фільтрації та сортування клієнтів
+export interface ClientFilters {
+  search?: string;
+  status?: ClientStatus | '';
+  ordering?: string;
 }
 
 // 4. Етапи воронки угод (відповідає STAGE_CHOICES у Django)
