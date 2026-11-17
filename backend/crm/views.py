@@ -69,13 +69,16 @@ class ClientViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
+        if not user.is_authenticated:
+            return Client.objects.none()
+
         base_qs = Client.objects.select_related('responsible_manager').annotate(
             deals_count=Count('deals', distinct=True),
             won_amount=Coalesce(
                 Sum('deals__amount', filter=Q(deals__stage='won')),
                 Value(Decimal('0.00')),
             ),
-        )    
+        )
         if user.is_staff or user.is_superuser:
             return base_qs.order_by('-created_at')
         return base_qs.filter(responsible_manager=user).order_by('-created_at')
@@ -107,6 +110,9 @@ class DealViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         user = self.request.user
+        if not user.is_authenticated:
+            return Deal.objects.none()
+
         if user.is_staff or user.is_superuser:
             return Deal.objects.all().select_related('client', 'client__responsible_manager').order_by('-created_at')
         return Deal.objects.filter(client__responsible_manager=user).select_related('client', 'client__responsible_manager').order_by('-created_at')
@@ -134,10 +140,13 @@ class DealViewSet(viewsets.ModelViewSet):
             pipeline_sum=Sum('amount', filter=~Q(stage__in=['won', 'lost'])),
             won_sum=Sum('amount', filter=Q(stage='won')),
         )
+        pipeline_val = Decimal(str(aggregated['pipeline_sum'] or 0))
+        won_val = Decimal(str(aggregated['won_sum'] or 0))
+
         return Response({
             'active_count': aggregated['active_count'] or 0,
-            'pipeline_sum': str(aggregated['pipeline_sum'] or '0.00'),
-            'won_sum': str(aggregated['won_sum'] or '0.00'),
+            'pipeline_sum': f'{pipeline_val:.2f}',
+            'won_sum': f'{won_val:.2f}',
         })
 
     

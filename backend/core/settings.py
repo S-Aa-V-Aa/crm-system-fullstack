@@ -39,9 +39,11 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
 
     # Сторонні бібліотеки
-    'rest_framework',
-    'django_filters',
+   'rest_framework',
+    'rest_framework_simplejwt',
     'corsheaders',
+    'django_filters',
+    'drf_spectacular',
 
     # Наші додатки
     'crm',    
@@ -147,6 +149,15 @@ REST_FRAMEWORK = {
     'DEFAULT_PERMISSION_CLASSES': (
         'rest_framework.permissions.IsAuthenticated',
     ),
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+}
+
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'Workspace B2B CRM API',
+    'DESCRIPTION': 'REST API для управління клієнтами, комерційними угодами та правами доступу команди.',
+    'VERSION': '1.0.0',
+    'SERVE_INCLUDE_SCHEMA': False,
+    'COMPONENT_SPLIT_REQUEST': True,
 }
 
 # Налаштування терміну дії JWT токенів
