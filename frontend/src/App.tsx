@@ -5,6 +5,7 @@ import { DashboardPage } from './pages/DashboardPage';
 import { ClientsPage } from './pages/ClientsPage';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { Layout } from './components/Layout';
+import { ToastProvider } from './context/ToastContext';
 import { isAuthenticated, logout } from './api/auth';
 
 function App() {
@@ -20,35 +21,37 @@ function App() {
   };
 
   return (
-    <BrowserRouter>
-      <Routes>
-        {/* Публічний маршрут входу */}
-        <Route
-          path="/login"
-          element={
-            isLoggedIn ? (
-              <Navigate to="/deals" replace />
-            ) : (
-              <LoginPage onLoginSuccess={handleLoginSuccess} />
-            )
-          }
-        />
+    <ToastProvider>
+      <BrowserRouter>
+        <Routes>
+          {/* Публічний маршрут входу */}
+          <Route
+            path="/login"
+            element={
+              isLoggedIn ? (
+                <Navigate to="/deals" replace />
+              ) : (
+                <LoginPage onLoginSuccess={handleLoginSuccess} />
+              )
+            }
+          />
 
-        {/* Захищені приватні маршрути CRM */}
-        <Route element={<ProtectedRoute />}>
-          <Route element={<Layout onLogout={handleLogout} />}>
-            <Route path="/deals" element={<DashboardPage />} />
-            <Route path="/clients" element={<ClientsPage />} />
+          {/* Захищені приватні маршрути CRM */}
+          <Route element={<ProtectedRoute />}>
+            <Route element={<Layout onLogout={handleLogout} />}>
+              <Route path="/deals" element={<DashboardPage />} />
+              <Route path="/clients" element={<ClientsPage />} />
+            </Route>
           </Route>
-        </Route>
 
-        {/* Редірект із кореневої адреси та невідомих URL */}
-        <Route
-          path="*"
-          element={<Navigate to={isLoggedIn ? '/deals' : '/login'} replace />}
-        />
-      </Routes>
-    </BrowserRouter>
+          {/* Редірект із кореневої адреси та невідомих URL */}
+          <Route
+            path="*"
+            element={<Navigate to={isLoggedIn ? '/deals' : '/login'} replace />}
+          />
+        </Routes>
+      </BrowserRouter>
+    </ToastProvider>
   );
 }
 

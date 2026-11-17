@@ -57,11 +57,21 @@ export interface UpdateClientPayload {
   responsible_manager?: number | null;
 }
 
+// Узагальнений формат відповіді DRF PageNumberPagination
+export interface PaginatedResponse<T> {
+  count: number;
+  next: string | null;
+  previous: string | null;
+  results: T[];
+}
+
 // Параметри пошуку, фільтрації та сортування клієнтів
 export interface ClientFilters {
   search?: string;
   status?: ClientStatus | '';
   ordering?: string;
+  page?: number;
+  page_size?: number;
 }
 
 // 4. Етапи воронки угод (відповідає STAGE_CHOICES у Django)
@@ -117,4 +127,6 @@ export interface DealFilters {
   search?: string;
   stage?: DealStage | '';
   ordering?: string;
+  page?: number;
+  page_size?: number;
 }

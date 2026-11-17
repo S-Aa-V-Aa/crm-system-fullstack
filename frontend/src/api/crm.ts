@@ -5,6 +5,7 @@ import type {
   DealStats,
   DealFilters,
   ClientFilters,
+  PaginatedResponse,
   CreateClientPayload,
   UpdateClientPayload,
   CreateDealPayload,
@@ -13,8 +14,10 @@ import type {
 
 // ==================== КЛІЄНТИ ====================
 
-export const getClients = async (filters?: ClientFilters): Promise<Client[]> => {
-  const params: Record<string, string> = {};
+export const getClients = async (
+  filters?: ClientFilters
+): Promise<PaginatedResponse<Client>> => {
+  const params: Record<string, string | number> = {};
 
   if (filters?.search?.trim()) {
     params.search = filters.search.trim();
@@ -25,9 +28,22 @@ export const getClients = async (filters?: ClientFilters): Promise<Client[]> => 
   if (filters?.ordering) {
     params.ordering = filters.ordering;
   }
+  if (filters?.page) {
+    params.page = filters.page;
+  }
+  if (filters?.page_size) {
+    params.page_size = filters.page_size;
+  }
 
-  const response = await apiClient.get<Client[]>('/clients/', { params });
-  return response.data;
+  const response = await apiClient.get<PaginatedResponse<Client> | Client[]>('/clients/', {
+    params,
+  });
+  const data = response.data;
+
+  if (Array.isArray(data)) {
+    return { count: data.length, next: null, previous: null, results: data };
+  }
+  return data;
 };
 
 export const createClient = async (clientData: CreateClientPayload): Promise<Client> => {
@@ -35,7 +51,7 @@ export const createClient = async (clientData: CreateClientPayload): Promise<Cli
   return response.data;
 };
 
-export const updateClient = async(
+export const updateClient = async (
   clientId: number,
   clientData: UpdateClientPayload
 ): Promise<Client> => {
@@ -45,7 +61,7 @@ export const updateClient = async(
 
 export const deleteClient = async (clientId: number): Promise<void> => {
   await apiClient.delete(`/clients/${clientId}/`);
-}
+};
 
 export const reassignClientManager = async (
   clientId: number,
@@ -59,9 +75,10 @@ export const reassignClientManager = async (
 
 // ==================== УГОДИ ====================
 
-// Отримання списку угод з урахуванням пошуку, фільтра за етапом та сортування
-export const getDeals = async (filters?: DealFilters): Promise<Deal[]> => {
-  const params: Record<string, string> = {};
+export const getDeals = async (
+  filters?: DealFilters
+): Promise<PaginatedResponse<Deal>> => {
+  const params: Record<string, string | number> = {};
 
   if (filters?.search?.trim()) {
     params.search = filters.search.trim();
@@ -72,12 +89,24 @@ export const getDeals = async (filters?: DealFilters): Promise<Deal[]> => {
   if (filters?.ordering) {
     params.ordering = filters.ordering;
   }
+  if (filters?.page) {
+    params.page = filters.page;
+  }
+  if (filters?.page_size) {
+    params.page_size = filters.page_size;
+  }
 
-  const response = await apiClient.get<Deal[]>('/deals/', { params });
-  return response.data;
+  const response = await apiClient.get<PaginatedResponse<Deal> | Deal[]>('/deals/', {
+    params,
+  });
+  const data = response.data;
+
+  if (Array.isArray(data)) {
+    return { count: data.length, next: null, previous: null, results: data };
+  }
+  return data;
 };
 
-// Отримання загальних KPI-показників компанії/менеджера з бекенду
 export const getDealStats = async (): Promise<DealStats> => {
   const response = await apiClient.get<DealStats>('/deals/stats/');
   return response.data;

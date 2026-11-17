@@ -2,8 +2,12 @@ import { useState, useEffect } from 'react';
 import { getClients, updateClient } from '../api/crm';
 import { useDebounce } from '../hooks/useDebounce';
 import { useLayoutContext } from '../hooks/useLayoutContext';
+import { useToast } from '../hooks/useToast';
 import type { Client, ClientStatus } from '../types';
 import { ClientModal } from '../components/ClientModal';
+import { Pagination } from '../components/Pagination';
+
+const PAGE_SIZE = 10;
 
 const CLIENT_STATUS_CONFIG: Record<
   ClientStatus,
@@ -36,7 +40,6 @@ const CLIENT_ORDERING_OPTIONS = [
   { value: '-deals_count', label: 'Кількість угод: за спаданням' },
 ];
 
-// Допоміжна функція для правильного відмінювання слова «угода»
 const formatDealsCount = (count: number): string => {
   const mod10 = count % 10;
   const mod100 = count % 100;
@@ -48,8 +51,11 @@ const formatDealsCount = (count: number): string => {
 
 export const ClientsPage = () => {
   const { currentUser } = useLayoutContext();
+  const { showToast } = useToast();
 
   const [clients, setClients] = useState<Client[]>([]);
+  const [totalClientsCount, setTotalClientsCount] = useState<number>(0);
+  const [page, setPage] = useState<number>(1);
 
   // Стани пошуку, фільтрації за статусом та сортування
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -62,25 +68,27 @@ export const ClientsPage = () => {
   const [isFetchingClients, setIsFetchingClients] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Стан модального вікна (null = закрите; { mode: 'create' } або { mode: 'edit', client })
+  // Стан модального вікна
   const [modalState, setModalState] = useState<
     { mode: 'create' } | { mode: 'edit'; client: Client } | null
   >(null);
 
-  // Завантаження списку клієнтів із урахуванням фільтрів та ORM-анотацій
   useEffect(() => {
     let isMounted = true;
 
     const fetchClients = async () => {
       setIsFetchingClients(true);
       try {
-        const data = await getClients({
+        const response = await getClients({
           search: debouncedSearch,
           status: statusFilter,
           ordering,
+          page,
+          page_size: PAGE_SIZE,
         });
         if (isMounted) {
-          setClients(data);
+          setClients(response.results ?? []);
+          setTotalClientsCount(response.count ?? 0);
           setError(null);
         }
       } catch {
@@ -99,9 +107,8 @@ export const ClientsPage = () => {
     return () => {
       isMounted = false;
     };
-  }, [debouncedSearch, statusFilter, ordering]);
+  }, [debouncedSearch, statusFilter, ordering, page]);
 
-  // Швидка зміна статусу клієнта прямо в таблиці
   const handleStatusChange = async (clientId: number, nextStatus: ClientStatus) => {
     try {
       const updated = await updateClient(clientId, { status: nextStatus });
@@ -118,19 +125,28 @@ export const ClientsPage = () => {
           )
           .filter((item) => !statusFilter || item.status === statusFilter)
       );
+      if (statusFilter && updated.status !== statusFilter) {
+        setTotalClientsCount((prev) => Math.max(0, prev - 1));
+      }
+      showToast('Статус клієнта оновлено.', 'success');
     } catch {
-      alert('Не вдалося оновити статус клієнта.');
+      showToast('Не вдалося оновити статус клієнта.', 'error');
     }
   };
 
-  // Оновлення таблиці після створення або редагування у модальному вікні
   const handleClientSaved = (savedClient: Client, isNew: boolean) => {
     const matchesStatus = !statusFilter || savedClient.status === statusFilter;
 
     if (isNew) {
       if (matchesStatus) {
-        setClients((prev) => [savedClient, ...prev]);
+        setTotalClientsCount((prev) => prev + 1);
+        if (page === 1) {
+          setClients((prev) => [savedClient, ...prev].slice(0, PAGE_SIZE));
+        } else {
+          setPage(1);
+        }
       }
+      showToast(`Клієнта «${savedClient.first_name} ${savedClient.last_name}» додано.`, 'success');
       return;
     }
 
@@ -147,23 +163,30 @@ export const ClientsPage = () => {
         )
         .filter((item) => !statusFilter || item.status === statusFilter)
     );
+    showToast('Дані клієнта оновлено.', 'success');
   };
 
   const handleClientDeleted = (deletedClientId: number) => {
-    setClients((prev) => prev.filter((item) => item.id !== deletedClientId));
+    setTotalClientsCount((prev) => Math.max(0, prev - 1));
+    if (clients.length === 1 && page > 1) {
+      setPage((prev) => prev - 1);
+    } else {
+      setClients((prev) => prev.filter((item) => item.id !== deletedClientId));
+    }
+    showToast('Картку клієнта видалено.', 'info');
   };
 
   const handleResetFilters = () => {
     setSearchQuery('');
     setStatusFilter('');
     setOrdering('-created_at');
+    setPage(1);
   };
 
   const hasActiveFilters = Boolean(
     searchQuery.trim() || statusFilter || ordering !== '-created_at'
   );
 
-  // Підрахунок зведених метрик по поточному списку клієнтів
   const activeClientsCount = clients.filter((c) => c.status === 'active').length;
   const totalClientsRevenue = clients.reduce(
     (sum, c) => sum + parseFloat(c.won_amount || '0'),
@@ -172,24 +195,24 @@ export const ClientsPage = () => {
 
   return (
     <main className="max-w-6xl mx-auto px-6 py-8 space-y-6">
-      {/* Компактні KPI по базі контрагентів */}
+      {/* Компактні KPI по поточній сторінці контрагентів */}
       <section className="grid grid-cols-1 sm:grid-cols-3 gap-4">
         <div className="bg-white p-4 rounded-lg border border-slate-200">
-          <span className="text-xs font-medium text-slate-500">Контрагентів у вибірці</span>
+          <span className="text-xs font-medium text-slate-500">Усього контрагентів</span>
           <div className="mt-1 text-2xl font-semibold tracking-tight text-slate-900">
-            {clients.length}
+            {totalClientsCount}
           </div>
         </div>
 
         <div className="bg-white p-4 rounded-lg border border-slate-200">
-          <span className="text-xs font-medium text-slate-500">Активних клієнтів</span>
+          <span className="text-xs font-medium text-slate-500">Активних на сторінці</span>
           <div className="mt-1 text-2xl font-semibold tracking-tight text-slate-900">
             {activeClientsCount}
           </div>
         </div>
 
         <div className="bg-white p-4 rounded-lg border border-slate-200">
-          <span className="text-xs font-medium text-slate-500">Закриті угоди клієнтів</span>
+          <span className="text-xs font-medium text-slate-500">Виручка на сторінці</span>
           <div className="mt-1 text-2xl font-semibold tracking-tight text-emerald-700">
             ${totalClientsRevenue.toLocaleString('en-US', { minimumFractionDigits: 2 })}
           </div>
@@ -203,7 +226,7 @@ export const ClientsPage = () => {
             Клієнти
           </h1>
           <span className="text-xs text-slate-500">
-            Знайдено записів: {clients.length}
+            Всього знайдено: {totalClientsCount}
           </span>
         </div>
 
@@ -233,7 +256,10 @@ export const ClientsPage = () => {
           <input
             type="text"
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setPage(1);
+            }}
             placeholder="Пошук за ім’ям, прізвищем, email або телефоном..."
             className="w-full pl-8 pr-3 py-1.5 text-sm bg-slate-50/50 border border-slate-200 rounded-md focus:bg-white focus:outline-none focus:border-slate-400 transition-colors"
           />
@@ -242,7 +268,10 @@ export const ClientsPage = () => {
         <div className="relative sm:w-44">
           <select
             value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value as ClientStatus | '')}
+            onChange={(e) => {
+              setStatusFilter(e.target.value as ClientStatus | '');
+              setPage(1);
+            }}
             className="w-full px-3 py-1.5 pr-8 text-sm bg-white border border-slate-200 rounded-md appearance-none focus:outline-none focus:border-slate-400"
           >
             <option value="">Усі статуси</option>
@@ -262,7 +291,10 @@ export const ClientsPage = () => {
         <div className="relative sm:w-52">
           <select
             value={ordering}
-            onChange={(e) => setOrdering(e.target.value)}
+            onChange={(e) => {
+              setOrdering(e.target.value);
+              setPage(1);
+            }}
             className="w-full px-3 py-1.5 pr-8 text-sm bg-white border border-slate-200 rounded-md appearance-none focus:outline-none focus:border-slate-400"
           >
             {CLIENT_ORDERING_OPTIONS.map((opt) => (
@@ -307,107 +339,117 @@ export const ClientsPage = () => {
             : 'База клієнтів порожня. Натисніть «+ Новий клієнт», щоб додати перший контакт.'}
         </div>
       ) : (
-        <div
-          className={`bg-white border border-slate-200 rounded-lg overflow-hidden transition-opacity duration-150 ${
-            isFetchingClients ? 'opacity-60' : 'opacity-100'
-          }`}
-        >
-          <table className="w-full text-left text-sm border-collapse">
-            <thead>
-              <tr className="border-b border-slate-200 bg-slate-50/75 text-xs font-medium text-slate-500">
-                <th className="py-3 px-4">Контрагент</th>
-                <th className="py-3 px-4">Відповідальний</th>
-                <th className="py-3 px-4">Угоди / Виручка</th>
-                <th className="py-3 px-4 w-40 text-right">Статус</th>
-                <th className="py-3 px-4 w-28 text-right">Дії</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {clients.map((client) => {
-                const statusCfg = CLIENT_STATUS_CONFIG[client.status] || CLIENT_STATUS_CONFIG.lead;
-                const isOwnerDeactivated =
-                  Boolean(client.responsible_manager) && client.manager_is_active === false;
-                const dealsCount = client.deals_count ?? 0;
-                const wonAmount = parseFloat(client.won_amount || '0');
+        <div className="space-y-3">
+          <div
+            className={`bg-white border border-slate-200 rounded-lg overflow-hidden transition-opacity duration-150 ${
+              isFetchingClients ? 'opacity-60' : 'opacity-100'
+            }`}
+          >
+            <table className="w-full text-left text-sm border-collapse">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50/75 text-xs font-medium text-slate-500">
+                  <th className="py-3 px-4">Контрагент</th>
+                  <th className="py-3 px-4">Відповідальний</th>
+                  <th className="py-3 px-4">Угоди / Виручка</th>
+                  <th className="py-3 px-4 w-40 text-right">Статус</th>
+                  <th className="py-3 px-4 w-28 text-right">Дії</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {clients.map((client) => {
+                  const statusCfg = CLIENT_STATUS_CONFIG[client.status] || CLIENT_STATUS_CONFIG.lead;
+                  const isOwnerDeactivated =
+                    Boolean(client.responsible_manager) && client.manager_is_active === false;
+                  const dealsCount = client.deals_count ?? 0;
+                  const wonAmount = parseFloat(client.won_amount || '0');
 
-                return (
-                  <tr key={client.id} className="hover:bg-slate-50/60 transition-colors">
-                    <td className="py-3 px-4">
-                      <div className="font-medium text-slate-900">
-                        {client.first_name} {client.last_name}
-                      </div>
-                      <div className="text-xs text-slate-500 mt-0.5 flex flex-wrap items-center gap-x-2">
-                        <span>{client.email}</span>
-                        {client.phone && (
-                          <>
-                            <span className="text-slate-300">•</span>
-                            <span className="font-mono text-[11px]">{client.phone}</span>
-                          </>
-                        )}
-                      </div>
-                    </td>
-
-                    <td className="py-3 px-4 text-xs">
-                      {client.manager_name ? (
-                        <div className="inline-flex items-center gap-1.5">
-                          <span className="text-slate-700 font-medium">{client.manager_name}</span>
-                          {isOwnerDeactivated && (
-                            <span className="px-1.5 py-0.5 text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200 rounded">
-                              звільнений
-                            </span>
+                  return (
+                    <tr key={client.id} className="hover:bg-slate-50/60 transition-colors">
+                      <td className="py-3 px-4">
+                        <div className="font-medium text-slate-900">
+                          {client.first_name} {client.last_name}
+                        </div>
+                        <div className="text-xs text-slate-500 mt-0.5 flex flex-wrap items-center gap-x-2">
+                          <span>{client.email}</span>
+                          {client.phone && (
+                            <>
+                              <span className="text-slate-300">•</span>
+                              <span className="font-mono text-[11px]">{client.phone}</span>
+                            </>
                           )}
                         </div>
-                      ) : (
-                        <span className="text-slate-400">Не призначено</span>
-                      )}
-                    </td>
+                      </td>
 
-                    <td className="py-3 px-4">
-                      <div className="font-mono text-sm font-medium text-slate-900">
-                        ${wonAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                      </div>
-                      <div className="text-xs text-slate-500">
-                        {formatDealsCount(dealsCount)}
-                      </div>
-                    </td>
+                      <td className="py-3 px-4 text-xs">
+                        {client.manager_name ? (
+                          <div className="inline-flex items-center gap-1.5">
+                            <span className="text-slate-700 font-medium">{client.manager_name}</span>
+                            {isOwnerDeactivated && (
+                              <span className="px-1.5 py-0.5 text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200 rounded">
+                                звільнений
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-slate-400">Не призначено</span>
+                        )}
+                      </td>
 
-                    <td className="py-3 px-4 text-right">
-                      <div className="inline-block relative">
-                        <select
-                          value={client.status}
-                          onChange={(e) =>
-                            handleStatusChange(client.id, e.target.value as ClientStatus)
-                          }
-                          className={`text-xs font-medium pl-2.5 pr-6 py-1 rounded border appearance-none cursor-pointer focus:outline-none focus:border-slate-400 transition-colors ${statusCfg.bg} ${statusCfg.text} ${statusCfg.border}`}
-                        >
-                          {Object.entries(CLIENT_STATUS_CONFIG).map(([key, config]) => (
-                            <option key={key} value={key} className="bg-white text-slate-800">
-                              {config.label}
-                            </option>
-                          ))}
-                        </select>
-                        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-1.5 text-slate-400">
-                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-                          </svg>
+                      <td className="py-3 px-4">
+                        <div className="font-mono text-sm font-medium text-slate-900">
+                          ${wonAmount.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                         </div>
-                      </div>
-                    </td>
+                        <div className="text-xs text-slate-500">
+                          {formatDealsCount(dealsCount)}
+                        </div>
+                      </td>
 
-                    <td className="py-3 px-4 text-right">
-                      <button
-                        type="button"
-                        onClick={() => setModalState({ mode: 'edit', client })}
-                        className="px-2.5 py-1 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded hover:bg-slate-50 hover:border-slate-300 transition-colors"
-                      >
-                        Редагувати
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                      <td className="py-3 px-4 text-right">
+                        <div className="inline-block relative">
+                          <select
+                            value={client.status}
+                            onChange={(e) =>
+                              handleStatusChange(client.id, e.target.value as ClientStatus)
+                            }
+                            className={`text-xs font-medium pl-2.5 pr-6 py-1 rounded border appearance-none cursor-pointer focus:outline-none focus:border-slate-400 transition-colors ${statusCfg.bg} ${statusCfg.text} ${statusCfg.border}`}
+                          >
+                            {Object.entries(CLIENT_STATUS_CONFIG).map(([key, config]) => (
+                              <option key={key} value={key} className="bg-white text-slate-800">
+                                {config.label}
+                              </option>
+                            ))}
+                          </select>
+                          <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-1.5 text-slate-400">
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                            </svg>
+                          </div>
+                        </div>
+                      </td>
+
+                      <td className="py-3 px-4 text-right">
+                        <button
+                          type="button"
+                          onClick={() => setModalState({ mode: 'edit', client })}
+                          className="px-2.5 py-1 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded hover:bg-slate-50 hover:border-slate-300 transition-colors"
+                        >
+                          Редагувати
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          <Pagination
+            currentPage={page}
+            totalCount={totalClientsCount}
+            pageSize={PAGE_SIZE}
+            isLoading={isFetchingClients}
+            onPageChange={setPage}
+          />
         </div>
       )}
 

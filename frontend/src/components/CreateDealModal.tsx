@@ -64,7 +64,8 @@ export const CreateDealModal = ({
     const loadFormData = async () => {
       setIsLoadingLists(true);
       try {
-        const clientsData = await getClients();
+        const clientsResponse = await getClients({ page_size: 100 });
+        const clientsData = clientsResponse.results;
         if (isMounted) {
           setClients(clientsData);
           if (clientsData.length > 0) {

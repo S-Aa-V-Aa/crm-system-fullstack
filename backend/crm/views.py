@@ -1,3 +1,4 @@
+from .pagination import StandardResultsSetPagination
 from decimal import Decimal
 from django.db.models import Sum, Count, Q, Value
 from django.db.models.functions import Coalesce
@@ -59,6 +60,7 @@ class UserDetailView(generics.RetrieveUpdateDestroyAPIView):
 class ClientViewSet(viewsets.ModelViewSet):
     serializer_class = ClientSerializer
     permission_classes = [IsAdminOrResponsibleManager]
+    pagination_class = StandardResultsSetPagination
 
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['status', 'responsible_manager']
@@ -96,6 +98,7 @@ class ClientViewSet(viewsets.ModelViewSet):
 class DealViewSet(viewsets.ModelViewSet):
     serializer_class = DealSerializer
     permission_classes = [IsAdminOrResponsibleManager]
+    pagination_class = StandardResultsSetPagination
 
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['stage', 'client']

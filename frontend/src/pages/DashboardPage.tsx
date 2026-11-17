@@ -2,9 +2,13 @@ import { useState, useEffect, useCallback } from 'react';
 import { getDeals, getDealStats, updateDealStage } from '../api/crm';
 import { useDebounce } from '../hooks/useDebounce';
 import { useLayoutContext } from '../hooks/useLayoutContext';
+import { useToast } from '../hooks/useToast';
 import type { Deal, DealStage, DealStats } from '../types';
 import { CreateDealModal } from '../components/CreateDealModal';
 import { EditDealModal } from '../components/EditDealModal';
+import { Pagination } from '../components/Pagination';
+
+const PAGE_SIZE = 10;
 
 const STAGE_CONFIG: Record<DealStage, { label: string; bg: string; text: string; border: string }> = {
   new: { label: 'Нова', bg: 'bg-slate-50', text: 'text-slate-700', border: 'border-slate-200' },
@@ -23,8 +27,12 @@ const ORDERING_OPTIONS = [
 
 export const DashboardPage = () => {
   const { currentUser } = useLayoutContext();
+  const { showToast } = useToast();
 
   const [deals, setDeals] = useState<Deal[]>([]);
+  const [totalDealsCount, setTotalDealsCount] = useState<number>(0);
+  const [page, setPage] = useState<number>(1);
+
   const [stats, setStats] = useState<DealStats>({
     active_count: 0,
     pipeline_sum: '0.00',
@@ -46,16 +54,17 @@ export const DashboardPage = () => {
   const [isCreateDealOpen, setIsCreateDealOpen] = useState<boolean>(false);
   const [editingDeal, setEditingDeal] = useState<Deal | null>(null);
 
+  // Функція для фонового оновлення серверних KPI після змін у таблиці
   const refreshStats = useCallback(async () => {
     try {
       const freshStats = await getDealStats();
       setStats(freshStats);
     } catch {
-      // Ігноруємо фонову помилку оновлення статистики
+      // Ігноруємо фонову помилку оновлення KPI, якщо основні дані завантажені
     }
   }, []);
 
-  // 1. Завантаження початкової KPI-статистики
+  // 1. Завантаження початкової KPI-статистики з /api/deals/stats/
   useEffect(() => {
     let isMounted = true;
 
@@ -76,20 +85,23 @@ export const DashboardPage = () => {
     };
   }, []);
 
-  // 2. Завантаження списку угод при першому відкритті та при зміні фільтрів/пошуку
+  // 2. Завантаження поточної сторінки угод з урахуванням фільтрів і пошуку
   useEffect(() => {
     let isMounted = true;
 
     const fetchFilteredDeals = async () => {
       setIsFetchingDeals(true);
       try {
-        const dealsData = await getDeals({
+        const response = await getDeals({
           search: debouncedSearch,
           stage: stageFilter,
           ordering,
+          page,
+          page_size: PAGE_SIZE,
         });
         if (isMounted) {
-          setDeals(dealsData);
+          setDeals(response.results);
+          setTotalDealsCount(response.count);
           setError(null);
         }
       } catch {
@@ -108,8 +120,9 @@ export const DashboardPage = () => {
     return () => {
       isMounted = false;
     };
-  }, [debouncedSearch, stageFilter, ordering]);
+  }, [debouncedSearch, stageFilter, ordering, page]);
 
+  // Швидка зміна етапу угоди прямо в рядку таблиці
   const handleStageChange = async (dealId: number, nextStage: DealStage) => {
     try {
       const updated = await updateDealStage(dealId, nextStage);
@@ -118,20 +131,32 @@ export const DashboardPage = () => {
           .map((item) => (item.id === dealId ? updated : item))
           .filter((item) => !stageFilter || item.stage === stageFilter)
       );
+      if (stageFilter && updated.stage !== stageFilter) {
+        setTotalDealsCount((prev) => Math.max(0, prev - 1));
+      }
       await refreshStats();
+      showToast('Статус угоди оновлено.', 'success');
     } catch {
-      alert('Не вдалося зберегти зміни. Спробуйте пізніше.');
+      showToast('Не вдалося зберегти статус угоди.', 'error');
     }
   };
 
+  // Додавання створеної угоди в таблицю та оновлення KPI
   const handleDealCreated = async (newDeal: Deal) => {
     const matchesStage = !stageFilter || newDeal.stage === stageFilter;
     if (matchesStage) {
-      setDeals((prev) => [newDeal, ...prev]);
+      setTotalDealsCount((prev) => prev + 1);
+      if (page === 1) {
+        setDeals((prev) => [newDeal, ...prev].slice(0, PAGE_SIZE));
+      } else {
+        setPage(1);
+      }
     }
     await refreshStats();
+    showToast(`Угоду «${newDeal.title}» створено.`, 'success');
   };
 
+  // Оновлення угоди в списку та синхронізація відповідального менеджера для всіх угод цього клієнта
   const handleDealUpdated = async (updatedDeal: Deal) => {
     setDeals((prev) =>
       prev
@@ -152,17 +177,26 @@ export const DashboardPage = () => {
         .filter((item) => !stageFilter || item.stage === stageFilter)
     );
     await refreshStats();
+    showToast('Зміни в угоді збережено.', 'success');
   };
 
+  // Видалення угоди зі списку з коректним переходом на попередню сторінку, якщо поточна спорожніла
   const handleDealDeleted = async (deletedDealId: number) => {
-    setDeals((prev) => prev.filter((item) => item.id !== deletedDealId));
+    setTotalDealsCount((prev) => Math.max(0, prev - 1));
+    if (deals.length === 1 && page > 1) {
+      setPage((prev) => prev - 1);
+    } else {
+      setDeals((prev) => prev.filter((item) => item.id !== deletedDealId));
+    }
     await refreshStats();
+    showToast('Угоду видалено.', 'info');
   };
 
   const handleResetFilters = () => {
     setSearchQuery('');
     setStageFilter('');
     setOrdering('-created_at');
+    setPage(1);
   };
 
   const hasActiveFilters = Boolean(searchQuery.trim() || stageFilter || ordering !== '-created_at');
@@ -200,7 +234,7 @@ export const DashboardPage = () => {
             Угоди
           </h1>
           <span className="text-xs text-slate-500">
-            Знайдено позицій: {deals.length}
+            Всього знайдено: {totalDealsCount}
           </span>
         </div>
 
@@ -230,7 +264,10 @@ export const DashboardPage = () => {
           <input
             type="text"
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
+            onChange={(e) => {
+              setSearchQuery(e.target.value);
+              setPage(1);
+            }}
             placeholder="Пошук за назвою угоди, клієнтом або email..."
             className="w-full pl-8 pr-3 py-1.5 text-sm bg-slate-50/50 border border-slate-200 rounded-md focus:bg-white focus:outline-none focus:border-slate-400 transition-colors"
           />
@@ -239,7 +276,10 @@ export const DashboardPage = () => {
         <div className="relative sm:w-44">
           <select
             value={stageFilter}
-            onChange={(e) => setStageFilter(e.target.value as DealStage | '')}
+            onChange={(e) => {
+              setStageFilter(e.target.value as DealStage | '');
+              setPage(1);
+            }}
             className="w-full px-3 py-1.5 pr-8 text-sm bg-white border border-slate-200 rounded-md appearance-none focus:outline-none focus:border-slate-400"
           >
             <option value="">Усі етапи</option>
@@ -259,7 +299,10 @@ export const DashboardPage = () => {
         <div className="relative sm:w-48">
           <select
             value={ordering}
-            onChange={(e) => setOrdering(e.target.value)}
+            onChange={(e) => {
+              setOrdering(e.target.value);
+              setPage(1);
+            }}
             className="w-full px-3 py-1.5 pr-8 text-sm bg-white border border-slate-200 rounded-md appearance-none focus:outline-none focus:border-slate-400"
           >
             {ORDERING_OPTIONS.map((opt) => (
@@ -304,87 +347,97 @@ export const DashboardPage = () => {
             : 'Список порожній. Натисніть «+ Нова угода», щоб додати перший запис.'}
         </div>
       ) : (
-        <div
-          className={`bg-white border border-slate-200 rounded-lg overflow-hidden transition-opacity duration-150 ${
-            isFetchingDeals ? 'opacity-60' : 'opacity-100'
-          }`}
-        >
-          <table className="w-full text-left text-sm border-collapse">
-            <thead>
-              <tr className="border-b border-slate-200 bg-slate-50/75 text-xs font-medium text-slate-500">
-                <th className="py-3 px-4">Назва</th>
-                <th className="py-3 px-4">Клієнт</th>
-                <th className="py-3 px-4">Відповідальний</th>
-                <th className="py-3 px-4">Сума</th>
-                <th className="py-3 px-4 w-44 text-right">Статус</th>
-                <th className="py-3 px-4 w-28 text-right">Дії</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {deals.map((deal) => {
-                const stage = STAGE_CONFIG[deal.stage] || STAGE_CONFIG.new;
-                const isOwnerDeactivated =
-                  Boolean(deal.responsible_manager) && deal.manager_is_active === false;
+        <div className="space-y-3">
+          <div
+            className={`bg-white border border-slate-200 rounded-lg overflow-hidden transition-opacity duration-150 ${
+              isFetchingDeals ? 'opacity-60' : 'opacity-100'
+            }`}
+          >
+            <table className="w-full text-left text-sm border-collapse">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50/75 text-xs font-medium text-slate-500">
+                  <th className="py-3 px-4">Назва</th>
+                  <th className="py-3 px-4">Клієнт</th>
+                  <th className="py-3 px-4">Відповідальний</th>
+                  <th className="py-3 px-4">Сума</th>
+                  <th className="py-3 px-4 w-44 text-right">Статус</th>
+                  <th className="py-3 px-4 w-28 text-right">Дії</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {deals.map((deal) => {
+                  const stage = STAGE_CONFIG[deal.stage] || STAGE_CONFIG.new;
+                  const isOwnerDeactivated =
+                    Boolean(deal.responsible_manager) && deal.manager_is_active === false;
 
-                return (
-                  <tr key={deal.id} className="hover:bg-slate-50/60 transition-colors">
-                    <td className="py-3 px-4 font-medium text-slate-900">
-                      {deal.title}
-                    </td>
-                    <td className="py-3 px-4 text-slate-600">
-                      {deal.client_name || `Клієнт #${deal.client}`}
-                    </td>
-                    <td className="py-3 px-4 text-xs">
-                      {deal.manager_name ? (
-                        <div className="inline-flex items-center gap-1.5">
-                          <span className="text-slate-700 font-medium">{deal.manager_name}</span>
-                          {isOwnerDeactivated && (
-                            <span className="px-1.5 py-0.5 text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200 rounded">
-                              звільнений
-                            </span>
-                          )}
+                  return (
+                    <tr key={deal.id} className="hover:bg-slate-50/60 transition-colors">
+                      <td className="py-3 px-4 font-medium text-slate-900">
+                        {deal.title}
+                      </td>
+                      <td className="py-3 px-4 text-slate-600">
+                        {deal.client_name || `Клієнт #${deal.client}`}
+                      </td>
+                      <td className="py-3 px-4 text-xs">
+                        {deal.manager_name ? (
+                          <div className="inline-flex items-center gap-1.5">
+                            <span className="text-slate-700 font-medium">{deal.manager_name}</span>
+                            {isOwnerDeactivated && (
+                              <span className="px-1.5 py-0.5 text-[10px] font-medium bg-amber-50 text-amber-700 border border-amber-200 rounded">
+                                звільнений
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          <span className="text-slate-400">Не призначено</span>
+                        )}
+                      </td>
+                      <td className="py-3 px-4 font-mono text-slate-900 font-medium">
+                        ${parseFloat(deal.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <div className="inline-block relative">
+                          <select
+                            value={deal.stage}
+                            onChange={(e) => handleStageChange(deal.id, e.target.value as DealStage)}
+                            className={`text-xs font-medium pl-2.5 pr-6 py-1 rounded border appearance-none cursor-pointer focus:outline-none focus:ring-1 focus:ring-slate-400 transition-colors ${stage.bg} ${stage.text} ${stage.border}`}
+                          >
+                            {Object.entries(STAGE_CONFIG).map(([key, config]) => (
+                              <option key={key} value={key} className="bg-white text-slate-800">
+                                {config.label}
+                              </option>
+                            ))}
+                          </select>
+                          <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-1.5 text-slate-400">
+                            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
+                            </svg>
+                          </div>
                         </div>
-                      ) : (
-                        <span className="text-slate-400">Не призначено</span>
-                      )}
-                    </td>
-                    <td className="py-3 px-4 font-mono text-slate-900 font-medium">
-                      ${parseFloat(deal.amount).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                    </td>
-                    <td className="py-3 px-4 text-right">
-                      <div className="inline-block relative">
-                        <select
-                          value={deal.stage}
-                          onChange={(e) => handleStageChange(deal.id, e.target.value as DealStage)}
-                          className={`text-xs font-medium pl-2.5 pr-6 py-1 rounded border appearance-none cursor-pointer focus:outline-none focus:ring-1 focus:ring-slate-400 transition-colors ${stage.bg} ${stage.text} ${stage.border}`}
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        <button
+                          type="button"
+                          onClick={() => setEditingDeal(deal)}
+                          className="px-2.5 py-1 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded hover:bg-slate-50 hover:border-slate-300 transition-colors"
                         >
-                          {Object.entries(STAGE_CONFIG).map(([key, config]) => (
-                            <option key={key} value={key} className="bg-white text-slate-800">
-                              {config.label}
-                            </option>
-                          ))}
-                        </select>
-                        <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-1.5 text-slate-400">
-                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7" />
-                          </svg>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="py-3 px-4 text-right">
-                      <button
-                        type="button"
-                        onClick={() => setEditingDeal(deal)}
-                        className="px-2.5 py-1 text-xs font-medium text-slate-700 bg-white border border-slate-200 rounded hover:bg-slate-50 hover:border-slate-300 transition-colors"
-                      >
-                        Редагувати
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
+                          Редагувати
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+
+          <Pagination
+            currentPage={page}
+            totalCount={totalDealsCount}
+            pageSize={PAGE_SIZE}
+            isLoading={isFetchingDeals}
+            onPageChange={setPage}
+          />
         </div>
       )}
 
