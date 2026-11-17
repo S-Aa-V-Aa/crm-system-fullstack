@@ -6,6 +6,7 @@ env/
 # База даних SQLite та логи
 *.sqlite3
 *.log
+data_backup.json
 
 # Кеш Python
 __pycache__/
